@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+vector_store/
+outputs/
+data/raw/
+data/scifact_docs/
+eval/scifact_eval.jsonl
+model_cache/

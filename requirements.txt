@@ -1,0 +1,8 @@
+pypdf>=4.0.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+sentence-transformers>=3.0.0
+streamlit>=1.36.0
+openai>=1.40.0
+# Optional: FAISS vector index. Install manually when needed:
+# faiss-cpu>=1.8.0
