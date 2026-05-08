@@ -1,6 +1,6 @@
 # RAG Starter
 
-这是一个给面试项目用的轻量 RAG 雏形。当前版本先实现一个不依赖 API 的 BM25 检索基线，用来跑通：
+轻量 RAG 雏形。当前版本先实现一个不依赖 API 的 BM25 检索基线，用来跑通：
 
 ```text
 load docs -> chunk -> retrieve -> cite sources -> evaluate retrieval
