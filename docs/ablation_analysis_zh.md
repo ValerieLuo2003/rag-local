@@ -158,9 +158,9 @@ Embedding 的 Recall@10 随 chunk size 增大而提升：
 
 这也是加入 cross-encoder reranker 的动机。
 
-## 4. 当前最佳配置
+## 4. Rerank 补充实验
 
-不使用 rerank 时，当前最佳配置是：
+在非 rerank 设置中，表现最好的配置为：
 
 ```text
 retriever=hybrid
@@ -170,98 +170,42 @@ Recall@10=0.8333
 MRR@10=0.6688
 ```
 
-之前跑过的 rerank 配置是：
-
-```text
-retriever=rerank
-rerank_base=hybrid
-chunk_size=1200
-top_k=10
-Recall@10=0.8500
-MRR@10=0.6594
-```
-
-注意：
-
-- rerank 在 `chunk_size=1200` 下 Recall 更高。
-- hybrid 在 `chunk_size=1800` 下 MRR 更高。
-- 这两个还不能直接下最终结论，因为 rerank 还没有在 `chunk_size=1800` 下测试。
-
-下一步推荐实验：
-
-```powershell
-$env:PYTHONPATH="src"
-python -m rag_starter.eval_retrieval --retriever rerank --rerank-base hybrid --docs data/scifact_docs --eval-file eval/scifact_eval.jsonl --top-k 10 --chunk-size 1800 --chunk-overlap 100 --embedding-cache vector_store/scifact_all-MiniLM_chunk1800.npz --model-cache-dir model_cache_http --hybrid-candidate-k 50 --rerank-candidate-k 50 --progress-every 50
-```
-
-## 5. 生成阶段建议
-
-检索评估和 LLM 生成不一定用同一个 top-k。
-
-检索评估：
-
-```text
-top_k=10
-```
-
-看的是系统能不能召回标准证据。
-
-LLM 生成：
-
-```text
-top_k=3 或 top_k=5
-max_context_chars=2500
-max_output_tokens=300
-```
-
-看的是在控制成本的情况下，让模型基于少量高质量证据回答。
-
-推荐生成配置：
+随后补充了 `chunk_size=1800` 下的 `hybrid + cross-encoder rerank` 实验：
 
 ```text
 retriever=rerank
 rerank_base=hybrid
 chunk_size=1800
-top_k=3
-hybrid_candidate_k=30
-rerank_candidate_k=30
-max_context_chars=2500
-max_output_tokens=300
+top_k=10
+hybrid_candidate_k=50
+rerank_candidate_k=50
+Recall@10=0.8367
+MRR@10=0.6588
 ```
 
-## 6. 失败案例分析方向
+对比结果如下：
 
-之前这条问题：
+| 配置 | Recall@10 | MRR@10 |
+|---|---:|---:|
+| hybrid, chunk=1800 | 0.8333 | 0.6688 |
+| hybrid + rerank, chunk=1800 | 0.8367 | 0.6588 |
 
-```text
-0-dimensional biomaterials show inductive properties.
-```
+该结果表明，当前 cross-encoder reranker 在 `chunk_size=1800` 下仅小幅提升了 Recall，但没有提升 MRR，排序质量反而略有下降。因此，rerank 并不必然带来稳定收益，需要结合数据集、候选集质量、reranker 模型和 chunk 粒度共同评估。
 
-检索没有找到标准相关文档，导致 DeepSeek 正确拒答。
+可能原因包括：
 
-这个现象很重要：
+- 当前 reranker 是通用英文检索模型，不一定适配 SciFact 的生物医学事实判断场景。
+- base retriever 已经将部分标准证据排在较靠前位置，rerank 可能把表面相关但事实关系不匹配的候选提前。
+- SciFact claim 通常较短，且包含大量专业实体、否定关系、比较关系和数字，通用 cross-encoder 对细粒度事实关系的排序不够稳定。
+- `chunk_size=1800` 的文本较长，reranker 输入噪声增加，精排难度上升。
 
-> RAG 的答案质量受到检索质量上限约束。如果正确证据没有被召回，安全的 LLM 应该拒答，而不是编造答案。
+这一结果说明，RAG 系统优化不能仅凭模块堆叠判断效果，必须通过消融实验验证每个模块的实际贡献。
 
-后续可以优化：
+## 5. RAG 系统链路
 
-- Query rewrite：把科学 claim 改写成更适合检索的 query。
-- 领域 embedding：换成 biomedical/scientific embedding model。
-- 领域 reranker：换成科学文献检索场景更适合的 reranker。
-- 更大的候选集：例如 hybrid top-100 后再 rerank。
-- 更细的 metadata：标题、摘要、文档 id 分字段保存和检索。
+当前项目已经实现一个可运行的 RAG 应用算法原型，包含文档加载、chunk 切分、BM25 检索、embedding 语义检索、hybrid retrieval、cross-encoder rerank、检索评估、LLM 生成、引用检查和拒答逻辑。
 
-## 7. 面试复述版
-
-可以这样说：
-
-> 我在 BEIR SciFact 上做了检索消融实验，对比了 BM25、embedding retrieval 和 hybrid retrieval 在不同 chunk size 和 top-k 下的表现。实验发现，top-k 增大可以提升 Recall，但会增加上下文成本；Hybrid 整体最稳定，因为它融合了 BM25 的关键词匹配和 embedding 的语义匹配。在 SciFact 这种短摘要数据上，chunk size 1800 表现较好，说明完整摘要上下文对科学文献检索比较重要。当前非 rerank 最优配置是 hybrid + chunk size 1800 + top-k 10，Recall@10 达到 0.8333，MRR@10 达到 0.6688。下一步可以测试 chunk size 1800 下的 hybrid + cross-encoder rerank，看是否进一步提升排序质量。
-
-## 8. 阶段性项目复盘
-
-到目前为止，这个项目已经不只是一个“调用 LLM 的 demo”，而是一个比较完整的 RAG 应用算法项目雏形。它包含了文档加载、chunk 切分、BM25 检索、embedding 语义检索、hybrid retrieval、cross-encoder rerank、检索评估、消融实验、LLM 生成、引用检查和拒答逻辑。
-
-当前项目主链路可以概括为：
+系统主链路如下：
 
 ```text
 文档集合
@@ -277,194 +221,282 @@ max_output_tokens=300
 -> 引用检查 / 拒答检查
 ```
 
-### 8.1 已完成内容
+核心模块如下：
 
-目前已经完成的核心模块：
-
-- 基础 RAG 流程：支持从本地文档中检索证据，并基于证据生成回答。
-- BM25 检索：用于关键词、专有名词、编号类问题的精确匹配。
+- 基础 RAG 流程：从本地文档中检索证据，并基于证据生成回答。
+- BM25 检索：用于关键词、专有名词和编号类问题的精确匹配。
 - Embedding 检索：使用 sentence-transformers 将 query 和 chunk 编码成向量，通过向量相似度做语义召回。
-- Hybrid retrieval：使用 RRF 融合 BM25 和 embedding 的排序结果，提高整体召回稳定性。
+- Hybrid retrieval：使用 RRF 融合 BM25 和 embedding 的排序结果，提高召回稳定性。
 - Cross-encoder rerank：对召回候选做更精细的 query-document 相关性排序。
-- 检索评估：使用 Recall@k 和 MRR 评估相关文档是否被召回、是否排在靠前位置。
-- 消融实验：对比不同 chunk size、top-k、retriever 对结果的影响。
-- LLM 接入：已经支持 DeepSeek 这类 OpenAI-compatible Chat Completions API。
-- 引用与拒答：要求模型输出引用；如果证据不足，系统应该拒答而不是编造。
+- 检索评估：使用 Recall@k 和 MRR 评估相关文档是否被召回以及排序位置。
+- LLM 生成：支持 OpenAI-compatible Chat Completions API，例如 DeepSeek。
+- 引用与拒答：要求模型输出引用；当检索证据不足时返回无法确定，避免无依据生成。
 
-这几个点已经能支撑一段比较完整的项目介绍。
+## 6. 错误分析
 
-### 8.2 当前实验结论
+错误分析采用“代码分桶 + 人工归因”的方式完成。代码负责找出不同检索器之间的命中差异，人工阅读典型 case 后总结失败原因。
 
-从当前 SciFact 消融实验看，主要结论是：
-
-- `top_k` 增大通常会提高 Recall，但会增加后续 LLM 的上下文 token 成本。
-- Hybrid retrieval 整体比单独 BM25 或单独 embedding 更稳定。
-- 在 SciFact 这种论文摘要较短的数据集上，`chunk_size=1800` 表现较好，因为它更容易保留完整摘要语义。
-- Embedding 检索能提高语义召回能力，但排序质量不一定总是最好，所以需要 hybrid 和 rerank。
-- RAG 的最终回答质量受检索上限约束。如果正确证据没有被召回，LLM 再强也很难给出可靠答案。
-
-当前非 rerank 最优结果：
+错误分析文件位于：
 
 ```text
-retriever=hybrid
+outputs/error_analysis_hybrid_vs_rerank_chunk1800_top10_first100.jsonl
+```
+
+每一行是一条 JSON 记录，主要字段如下：
+
+| 字段 | 含义 |
+|---|---|
+| `bucket` | 样例所属类别 |
+| `question` | SciFact claim / query |
+| `relevant_sources` | 标准相关文档 |
+| `top_a` | method_a 的 top 检索结果 |
+| `top_b` | method_b 的 top 检索结果 |
+| `preview` | 检索结果文本预览 |
+
+本次分析比较 `hybrid` 与 `hybrid + rerank`，在前 100 条样例上的分桶结果如下：
+
+```text
+method_a=hybrid
+method_b=rerank
+top_k=10
 chunk_size=1800
-top_k=10
-Recall@10=0.8333
-MRR@10=0.6688
+max_examples=100
+
+a_only=6
+b_only=2
+both_hit=83
+both_miss=9
 ```
 
-之前 rerank 结果：
+分桶含义如下：
 
-```text
-retriever=rerank
-rerank_base=hybrid
-chunk_size=1200
-top_k=10
-Recall@10=0.8500
-MRR@10=0.6594
-```
+- `a_only`：hybrid 命中，但 rerank 未命中。
+- `b_only`：rerank 命中，但 hybrid 未命中。
+- `both_hit`：两个方法都命中。
+- `both_miss`：两个方法都未命中。
 
-所以后续最自然的实验是：测试 `chunk_size=1800` 下的 `hybrid + rerank`，看看能不能同时保持较高 Recall 和更好的排序质量。
+该统计解释了 rerank 整体收益不明显的原因：rerank 补回了少量 hybrid 未命中的样例，但同时也丢失了更多 hybrid 原本已经命中的样例。
 
-### 8.3 LLM 调用阶段的观察
+### 6.1 人工归因方法
 
-DeepSeek API 已经可以正常调用。用样例文档提问“RAG 的主流程是什么？”时，系统能够基于检索到的证据生成回答，并输出引用。
+人工分析单条 case 时，主要比较三类信息：
 
-但是在 SciFact 的事实判断问题中，如果检索到的证据不相关，LLM 会输出“无法确定”。这不是坏结果，反而说明拒答策略生效了。
+1. query 本身表达了什么事实关系。
+2. 标准相关文档的标题和摘要是否直接覆盖该事实。
+3. 检索结果返回的是标准证据、表面相似文档，还是主题相近但事实不匹配的文档。
 
-这个现象可以在面试中这样解释：
+常见失败原因包括：
 
-> 我把 RAG 拆成检索层和生成层来看。生成效果不好时，不一定是 LLM 的问题，也可能是检索没有召回正确证据。因此我会先看 evidence 是否命中，再看回答是否忠实于 evidence。对于证据不足的问题，系统应该拒答，这比强行生成更安全。
+- 关键词不重合：query 和标准文档之间缺少明显共享词，BM25 和通用 embedding 都难以召回。
+- 表面词误导：返回文档包含相同实体或术语，但并不支持 query 中的具体关系。
+- 否定或比较关系困难：query 中包含 `not`、`better`、`larger` 等判断，检索器可能只捕捉实体而忽略关系方向。
+- 领域模型不适配：通用 embedding 或 reranker 对生物医学术语、缩写和细粒度事实关系不够敏感。
+- chunk 噪声偏大：较长 chunk 保留了完整摘要，但也可能引入无关上下文，影响 reranker 判断。
 
-### 8.4 当前项目的亮点
+### 6.2 典型样例
 
-这个项目目前比较适合写进简历的点：
+| Bucket | Question | 现象 | 可能原因 |
+|---|---|---|---|
+| `both_miss` | `0-dimensional biomaterials show inductive properties.` | 两个方法均未召回标准文档 `scifact_31715818.md` | 标准文档标题是纳米技术操控干细胞，query 与标题/摘要关键词不直接重合，存在语义跳跃 |
+| `both_miss` | `Aspirin inhibits the production of PGE2.` | 返回结果集中在 PGE2、prostaglandin、aspirin 相关主题，但未命中标准文档 | 表面主题相关较强，但标准证据涉及 COX/PGE2/肿瘤免疫链路，事实关系更细 |
+| `a_only` | `CRP is not predictive of postoperative mortality following CABG surgery.` | hybrid 在 top-5 命中标准文档，rerank 后标准文档跌出 top 结果 | reranker 更偏好标题中直接出现 CRP、CABG、mortality 的文档，忽略了标准文档中的决策模型和否定判断 |
+| `a_only` | `Cells undergoing methionine restriction may activate miRNAs.` | hybrid 命中标准文档，rerank 被多个 miRNA 表面相关文档吸引 | reranker 对“methionine restriction”和“miRNA stress response”的组合关系不够稳定 |
+| `b_only` | `Arterioles have a larger lumen diameter than venules.` | rerank 将标准文档提升进 top-k，hybrid 未命中 | rerank 能利用候选文本中的 arterioles、venules、angiogenesis 等上下文做二次排序 |
 
-- 不是只调用 API，而是实现了完整 RAG 检索链路。
-- 有 BM25、embedding、hybrid、rerank 多种检索策略对比。
-- 有离线评估指标，而不是只靠主观观察。
-- 有 chunk size、top-k、retriever 的消融实验。
-- 有引用输出和拒答逻辑，体现了幻觉控制意识。
-- 接入了真实 LLM API，验证了端到端问答流程。
+错误分析显示，当前系统的主要瓶颈不是单一模块失效，而是事实判断类 query 对“实体 + 关系 + 方向”的要求更高。关键词召回、语义召回和通用 rerank 都可能在细粒度关系上出错。
 
-简历表达可以写：
+## 7. LLM 生成阶段
 
-```text
-构建基于 RAG 的本地知识库问答系统，支持文档解析、chunk 切分、BM25/embedding/hybrid retrieval、cross-encoder rerank、基于引用的答案生成和低置信拒答。基于 BEIR SciFact 构造检索评估流程，对比不同 chunk size、top-k 和检索策略对 Recall@k、MRR 的影响；实验中 hybrid retrieval 在 Recall@10 和 MRR@10 上整体优于单一路线。
-```
+检索评估和 LLM 生成阶段的 top-k 目标不同。检索评估通常使用较大的 `top_k=10` 观察召回上限；生成阶段通常使用较小的 `top_k=3` 或 `top_k=5`，以控制 token 成本和上下文噪声。
 
-### 8.5 当前不足
-
-当前项目还可以继续加强的地方：
-
-- 生成评估还比较粗，目前主要看引用是否存在、是否拒答，还没有系统评估 answer correctness。
-- SciFact 是公开 benchmark，格式比较规整，和真实企业知识库还有差距。
-- 目前 chunk 策略还是固定长度切分，还没有做按标题、段落、语义结构切分。
-- embedding 和 reranker 使用的是通用模型，未必最适合科学文献场景。
-- 还没有做 query rewrite，也没有做多轮对话或 agent/tool use。
-- 还没有可视化界面，展示上偏命令行。
-
-这些不足不是问题，反而可以作为后续优化方向和面试追问的回答材料。
-
-## 9. 后续优化优先级
-
-如果继续优化，我建议不要一次加太多功能。优先做下面这些最有性价比的内容。
-
-### 优先级 1：补充 rerank 消融
-
-先测：
+当前生成阶段推荐配置如下：
 
 ```text
 retriever=rerank
 rerank_base=hybrid
 chunk_size=1800
-top_k=10
+top_k=3
+hybrid_candidate_k=30
+rerank_candidate_k=30
+max_context_chars=2500
+max_output_tokens=300
 ```
 
-目的：验证当前最优 chunk size 下，加 rerank 是否进一步提升 MRR 或 Recall。
+DeepSeek API 已完成基本连通性验证。在样例文档问题“RAG 的主流程是什么？”中，系统能够基于检索证据生成答案，并输出引用。
 
-这一步很适合作为“下一轮实验”，因为它直接接在当前消融结论后面。
+在 SciFact 事实判断问题中，如果检索证据不相关，模型可能输出“无法确定”。这属于合理行为：RAG 的答案质量受到检索质量上限约束，当正确证据没有进入上下文时，拒答比无依据生成更安全。
 
-### 优先级 2：做错误分析
+## 8. 小规模生成评估设计
 
-挑出几类 case：
+端到端生成评估需要真实 LLM API 才能得到最终回答。`mock` provider 只能验证检索、prompt、引用检查和拒答后处理流程，不能评估真实答案质量。
 
-- BM25 命中但 embedding 没命中。
-- Embedding 命中但 BM25 没命中。
-- Hybrid 命中但单路没命中。
-- 所有方法都没命中。
-- 检索命中但 LLM 回答不理想。
+小规模生成评估不需要重新构造一套知识库。当前阶段可直接从 SciFact 中抽样构造小评估集，覆盖以下类型：
 
-错误分析比继续盲目调参数更有价值，因为它能说明系统失败在哪里。
+- 检索较容易命中的事实问题。
+- 同一文档下方向相反或容易混淆的 claim。
+- hybrid 命中但 rerank 未命中的样例。
+- rerank 命中但 hybrid 未命中的样例。
+- 两种方法都未命中的失败样例。
 
-面试里可以说：
+项目中已新增小规模评估文件：
 
-> 我不是只看总体指标，还会看失败样例，把问题拆成关键词匹配失败、语义召回失败、排序失败和生成忠实性失败，再决定下一步优化。
+```text
+eval/generation_eval_small.jsonl
+```
 
-### 优先级 3：做小规模生成评估集
+该文件包含 12 条问题，来源于 SciFact 原始评估集，并保留 `relevant_sources` 与 `review_group` 字段，便于后续人工复查。
 
-可以先不用大规模调用 API，手工挑 10-20 条问题即可：
+该评估集已经完成一次 dry-run 验证，输出文件为：
 
-- 证据明确支持的问题。
-- 证据明确反对的问题。
-- 证据不足、应该拒答的问题。
-- 检索容易混淆的问题。
+```text
+outputs/generation_eval_small_dryrun.jsonl
+```
 
-记录：
+dry-run 不调用真实 LLM，只执行检索、rerank、prompt 构造和 token 估算。本次 dry-run 结果如下：
+
+```text
+examples=12
+evidence_hit_rate=0.5000
+citation_valid_rate=1.0000
+refusal_rate=0.0000
+```
+
+该小集合刻意混合了容易命中的样例和检索失败样例，因此 `evidence_hit_rate=0.5000` 主要用于覆盖不同错误类型，不代表系统整体检索效果。
+
+真实 DeepSeek API 评估输出文件为：
+
+```text
+outputs/generation_eval_small_deepseek.jsonl
+```
+
+真实生成评估结果如下：
+
+```text
+examples=12
+evidence_hit_rate=0.5000
+citation_valid_rate=0.9167
+refusal_rate=0.4167
+```
+
+指标解释：
+
+- `evidence_hit_rate=0.5000`：12 条问题中有 6 条检索到了标准相关文档。由于该小集合刻意包含失败样例和容易混淆样例，该指标主要用于观察端到端系统在不同检索质量下的表现。
+- `citation_valid_rate=0.9167`：12 条回答中有 11 条引用格式有效，说明引用约束和后处理基本有效。
+- `refusal_rate=0.4167`：12 条回答中有 5 条触发拒答或被识别为拒答，说明模型在证据不足时具备一定谨慎性。
+
+典型现象如下：
+
+| 类型 | 样例 | 观察 |
+|---|---|---|
+| 检索命中且正常回答 | `ADAR1 binds to Dicer to cleave pre-miRNA.` | 标准证据 top-1 命中，模型基于证据回答并引用 `[1]` |
+| 检索命中且正常回答 | `AIRE is expressed in some skin tumors.` | 标准证据 top-1 命中，模型能从证据中抽取 Aire 与 skin tumor keratinocytes 的关系 |
+| 检索命中但拒答 | `ALDH1 expression is associated with better breast cancer outcomes.` | 证据实际支持 poorer prognosis，模型拒绝直接肯定 better outcomes |
+| 检索失败且合理拒答 | `0-dimensional biomaterials show inductive properties.` | 未召回标准文档，模型输出无法确定 |
+| 检索失败且合理拒答 | `Aspirin inhibits the production of PGE2.` | 检索结果主题相关但未命中标准证据，模型输出无法确定 |
+| 检索失败但仍回答 | `CRP is not predictive of postoperative mortality following CABG surgery.` | 未命中 benchmark 标准文档，但检索到其他 CRP/CABG 相关文档，模型仍基于这些证据给出反驳 |
+| 引用格式失败 | `Activation of PPM1D suppresses p53 function.` | 模型表达证据不足，但未按要求输出有效引用格式 |
+
+该结果表明，端到端生成链路已经跑通，引用控制整体有效，模型具备一定拒答能力。但系统仍存在两个风险：
+
+- 当检索未命中标准文档但返回了主题相关证据时，LLM 仍可能基于非标准证据生成答案，需要人工判断答案是否事实正确。
+- SciFact 更接近事实验证任务，仅输出自然语言答案不够结构化；更合适的输出格式可能是 `SUPPORTS / REFUTES / NOT ENOUGH INFO + Answer + Citations`。
+
+生成评估建议记录以下字段：
 
 ```text
 question
-gold_doc
-retrieved_doc_hit
+review_group
+relevant_sources
+retrieved_sources
+evidence_hit
 answer
-has_citation
-citation_valid
-should_refuse
-actually_refused
+citations_valid
+refused
 human_correctness
+human_note
 ```
 
-这一步能把项目从“检索项目”推进到“端到端 RAG 项目”。
+其中 `human_correctness` 需要人工判断，原因是脚本目前只统计 evidence hit、citation validity 和 refusal rate，并不会自动判断答案事实正确性。
 
-### 优先级 4：优化 chunk 策略
+Dry-run 可用于检查证据和 prompt，不消耗 LLM API：
 
-当前是固定长度 chunk，可以继续加：
+```powershell
+$env:PYTHONPATH="src"
+$env:HF_HUB_OFFLINE="1"
+$env:TRANSFORMERS_OFFLINE="1"
+python -m rag_starter.eval_generation --dry-run --show-evidence --llm-provider mock --retriever rerank --rerank-base hybrid --docs data/scifact_docs --eval-file eval/generation_eval_small.jsonl --max-examples 12 --top-k 3 --chunk-size 1800 --chunk-overlap 100 --embedding-model model_cache_http\models--sentence-transformers--all-MiniLM-L6-v2\snapshots\c9745ed1d9f207416be6d2e6f8de32d1f16199bf --embedding-cache vector_store\scifact_localpath_all-MiniLM_chunk1800.npz --model-cache-dir model_cache_http --hybrid-candidate-k 30 --rerank-candidate-k 30 --reranker-model model_cache_http\models--cross-encoder--ms-marco-MiniLM-L-6-v2\snapshots\c5ee24cb16019beea0893ab7796b1df96625c6b8 --output outputs\generation_eval_small_dryrun.jsonl
+```
 
-- 按段落切分。
-- 按标题切分。
-- sentence-aware splitting。
-- 对标题和正文保留 metadata。
+真实 API 评估可使用 OpenAI-compatible provider，例如 DeepSeek：
 
-但这一步可以稍后做，因为 SciFact 文档本身比较短，chunk 策略的收益可能不如企业长文档明显。
+```powershell
+$env:PYTHONPATH="src"
+$env:HF_HUB_OFFLINE="1"
+$env:TRANSFORMERS_OFFLINE="1"
+python -m rag_starter.eval_generation --llm-provider openai-chat --api-key-env DEEPSEEK_API_KEY --openai-base-url https://api.deepseek.com --llm-model deepseek-v4-flash --thinking disabled --retriever rerank --rerank-base hybrid --docs data/scifact_docs --eval-file eval/generation_eval_small.jsonl --max-examples 12 --top-k 3 --chunk-size 1800 --chunk-overlap 100 --embedding-model model_cache_http\models--sentence-transformers--all-MiniLM-L6-v2\snapshots\c9745ed1d9f207416be6d2e6f8de32d1f16199bf --embedding-cache vector_store\scifact_localpath_all-MiniLM_chunk1800.npz --model-cache-dir model_cache_http --hybrid-candidate-k 30 --rerank-candidate-k 30 --reranker-model model_cache_http\models--cross-encoder--ms-marco-MiniLM-L-6-v2\snapshots\c5ee24cb16019beea0893ab7796b1df96625c6b8 --max-context-chars 2500 --max-output-tokens 300 --require-citations --output outputs\generation_eval_small_deepseek.jsonl --progress-every 1
+```
 
-### 优先级 5：做一个轻量界面
+## 9. 项目亮点与局限
 
-最后可以用 Streamlit 做一个很简单的界面：
+项目亮点如下：
 
-- 左侧上传文档或选择数据集。
-- 中间输入问题。
-- 右侧显示答案、引用证据、检索分数。
-- 展示当前 retriever、top-k、chunk size 配置。
+- 实现了完整 RAG 检索与生成链路，而非单纯调用 LLM API。
+- 对比了 BM25、embedding、hybrid 和 rerank 多种检索策略。
+- 使用 Recall@k 和 MRR 做离线检索评估。
+- 通过 chunk size、top-k、retriever 对比完成消融实验。
+- 接入真实 LLM API，验证了端到端生成流程。
+- 引入引用输出和证据不足拒答，体现事实一致性与幻觉控制意识。
+- 通过错误分析解释了 rerank 效果不稳定的原因。
 
-界面不是算法核心，但展示项目时会更直观。
+当前局限如下：
 
-## 10. 当前阶段建议
+- 生成评估仍以人工复查为主，尚未引入自动 judge 或成规模人工标注。
+- SciFact 是公开 benchmark，格式较规整，与真实企业知识库仍有差异。
+- chunk 策略仍以固定长度切分为主，尚未加入标题层级、段落结构或语义切分。
+- embedding 和 reranker 使用通用模型，未针对科学文献或生物医学语料做领域适配。
+- query rewrite、多轮对话、tool use 和前端界面仍属于后续扩展方向。
 
-现在最推荐的节奏是：
+## 10. 简历包装
+
+本项目已经具备简历项目的基本完整度。原因如下：
+
+- 有明确应用场景：面向本地/私有文档的 RAG 问答。
+- 有完整技术链路：文档解析、chunk、BM25、embedding、hybrid retrieval、rerank、prompt、LLM 生成、引用和拒答。
+- 有离线指标：Recall@k 和 MRR。
+- 有消融实验：对比 chunk size、top-k、retriever、rerank。
+- 有错误分析：解释 hybrid 与 rerank 的差异和失败原因。
+- 有端到端验证：接入 DeepSeek API 完成真实生成评估。
+
+可用于简历的项目描述：
 
 ```text
-1. 先把当前复盘文档整理好。
-2. 再补一个 rerank chunk_size=1800 的实验。
-3. 再挑 10-20 条问题做小规模生成评估。
-4. 最后写项目总 README 和简历描述。
+基于 RAG 的本地知识库问答系统
+- 构建面向本地文档的 RAG 问答系统，支持文档解析、chunk 切分、BM25 检索、embedding 语义检索、hybrid retrieval、cross-encoder rerank 和基于引用的答案生成。
+- 基于 BEIR SciFact 构建离线检索评估流程，对比不同 chunk size、top-k、BM25、embedding、hybrid 和 rerank 对 Recall@k、MRR 的影响。
+- 实验发现 hybrid retrieval 整体最稳定，在 chunk_size=1800、top_k=10 时达到 Recall@10=0.8333、MRR@10=0.6688；补充 rerank 后 Recall@10=0.8367、MRR@10=0.6588，说明 rerank 未在当前配置下稳定提升排序质量。
+- 设计错误分析流程，对 hybrid 与 rerank 的命中差异进行分桶，分析关键词不重合、表面词误导、否定/比较关系困难和领域模型不适配等失败原因。
+- 接入 DeepSeek API 完成小规模端到端生成评估，验证引用输出和证据不足拒答逻辑；12 条评估样例中 citation_valid_rate=0.9167、refusal_rate=0.4167。
 ```
 
-不要急着继续堆 agent、LoRA、复杂工具调用。对 LLM 应用算法岗来说，当前最该强化的是：
+若简历篇幅较短，可压缩为三条：
 
-- 检索为什么这样设计。
-- 实验为什么这样对比。
-- 指标说明了什么。
-- 失败案例暴露了什么问题。
-- 下一步优化为什么这么做。
+```text
+- 构建基于 RAG 的本地知识库问答系统，支持 BM25、embedding、hybrid retrieval、cross-encoder rerank、引用生成和证据不足拒答。
+- 在 BEIR SciFact 上完成检索消融实验，对比 chunk size、top-k 与检索策略对 Recall@k、MRR 的影响；hybrid 在 chunk_size=1800、top_k=10 下达到 Recall@10=0.8333、MRR@10=0.6688。
+- 接入 DeepSeek API 做端到端生成评估，并通过错误分析定位检索失败、rerank 排序不稳定和事实验证类问题中的幻觉风险。
+```
 
-把这些讲清楚，比功能多但讲不清楚更有价值。
+## 11. 后续工作
+
+后续优化方向包括：
+
+- 生成评估：在已有 12 条真实 LLM 输出基础上，补充人工标注 `answer correctness`、`citation correctness` 和 `refusal correctness`。
+- 错误分析扩展：将前 100 条扩展到完整 300 条，并分别比较 BM25 vs embedding、embedding vs hybrid、hybrid vs rerank。
+- Reranker 优化：尝试科学文献或生物医学领域 reranker，并对比不同 `rerank_candidate_k`。
+- Chunk 策略优化：加入按标题、段落或句子边界切分，并比较对 Recall、MRR、生成质量和 token 成本的影响。
+- Query rewrite：对短 claim、术语不重合 query 和失败 case 做改写，观察召回是否改善。
+- 展示层：增加轻量 Streamlit 界面，用于展示问题、答案、引用证据、检索分数和配置参数。
+
+## 12. 总结
+
+本项目已经形成一个完整的 RAG 应用算法实验闭环：从文档建库、召回、融合、重排，到离线评估、消融实验、错误分析和 LLM 生成验证。实验结果显示，hybrid retrieval 在 SciFact 上整体最稳定；cross-encoder rerank 在当前配置下没有稳定提升排序质量，说明 RAG 模块优化需要通过消融实验和错误分析验证。DeepSeek 端到端评估进一步说明，检索命中时模型能够生成带引用的回答，证据不足时具备一定拒答能力。后续工作的重点应放在人工生成评估、事实验证式输出格式、领域模型适配和更结构化的 chunk 策略上。

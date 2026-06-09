@@ -4,7 +4,15 @@ import argparse
 import json
 from pathlib import Path
 
-from .answer_generation import build_answer_generator, postprocess_answer, refusal_result, should_refuse
+from .answer_generation import (
+    AnswerResult,
+    build_answer_generator,
+    build_grounded_prompt,
+    estimate_tokens,
+    postprocess_answer,
+    refusal_result,
+    should_refuse,
+)
 from .answer_cli import add_llm_args, add_retrieval_args
 from .chunking import split_documents
 from .cli import build_retriever
@@ -49,8 +57,21 @@ def main() -> None:
                 min_evidence=args.min_evidence,
                 min_top_score=args.min_top_score,
             )
+            prompt = build_grounded_prompt(question, evidence, max_context_chars=args.max_context_chars)
+            estimated_prompt_tokens = estimate_tokens(prompt)
+            estimated_total_token_budget = estimated_prompt_tokens + args.max_output_tokens
+
             if refused:
                 result = refusal_result(args.llm_provider, args.llm_model, len(evidence), reason)
+            elif args.dry_run:
+                result = AnswerResult(
+                    answer="DRY_RUN: LLM call skipped.",
+                    provider="dry-run",
+                    model=args.llm_model,
+                    evidence_count=len(evidence),
+                    refused=False,
+                    citations_valid=True,
+                )
             else:
                 if generator is None:
                     generator = build_answer_generator(
@@ -59,6 +80,8 @@ def main() -> None:
                         api_key_env=args.api_key_env,
                         base_url=args.openai_base_url,
                         max_output_tokens=args.max_output_tokens,
+                        max_context_chars=args.max_context_chars,
+                        thinking=args.thinking,
                     )
                 result = generator.generate(question, evidence)
                 result = postprocess_answer(result, len(evidence), require_citations=args.require_citations)
@@ -79,7 +102,14 @@ def main() -> None:
                 "refused": result.refused,
                 "citations_valid": result.citations_valid,
                 "citation_warning": result.citation_warning,
+                "dry_run": args.dry_run,
+                "estimated_prompt_tokens": estimated_prompt_tokens,
+                "estimated_total_token_budget": estimated_total_token_budget,
             }
+            if args.show_prompt:
+                row["prompt"] = prompt
+            if args.show_evidence:
+                row["evidence"] = summarize_evidence(evidence)
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
             if args.progress_every > 0 and index % args.progress_every == 0:
@@ -95,6 +125,19 @@ def main() -> None:
 
 def safe_div(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else 0.0
+
+
+def summarize_evidence(evidence: list) -> list[dict]:
+    return [
+        {
+            "rank": result.rank,
+            "score": result.score,
+            "source": result.chunk.source,
+            "chunk_id": result.chunk.chunk_id,
+            "preview": result.chunk.text.replace("\n", " ")[:360],
+        }
+        for result in evidence
+    ]
 
 
 if __name__ == "__main__":
