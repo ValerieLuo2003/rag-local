@@ -13,7 +13,7 @@ from .answer_generation import (
     should_refuse,
 )
 from .chunking import split_documents
-from .cli import build_retriever
+from .cli import add_agent_args, build_retriever
 from .loaders import load_documents
 
 
@@ -76,6 +76,12 @@ def main() -> None:
     print(f"evidence_count={result.evidence_count}")
     print(f"refused={result.refused}")
     print(f"citations_valid={result.citations_valid}")
+    if result.latency_ms is not None:
+        print(f"generation_latency_ms={result.latency_ms:.2f}")
+    if result.total_tokens is not None:
+        print(f"input_tokens={result.input_tokens}")
+        print(f"output_tokens={result.output_tokens}")
+        print(f"total_tokens={result.total_tokens}")
     if result.citation_warning:
         print(f"citation_warning={result.citation_warning}")
     print("\nAnswer:")
@@ -93,7 +99,8 @@ def add_retrieval_args(parser: argparse.ArgumentParser, question_required: bool 
     parser.add_argument("--top-k", type=int, default=5, help="Number of final evidence chunks.")
     parser.add_argument("--chunk-size", type=int, default=600, help="Chunk size measured in characters.")
     parser.add_argument("--chunk-overlap", type=int, default=120, help="Chunk overlap measured in characters.")
-    parser.add_argument("--retriever", choices=["bm25", "embedding", "faiss", "hybrid", "rerank"], default="rerank")
+    parser.add_argument("--retriever", choices=["bm25", "embedding", "faiss", "hybrid", "rerank", "agent"], default="rerank")
+    add_agent_args(parser)
     parser.add_argument("--embedding-model", default="sentence-transformers/all-MiniLM-L6-v2")
     parser.add_argument("--embedding-cache", help="Optional .npz cache path for chunk embeddings.")
     parser.add_argument("--model-cache-dir", default="model_cache")

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "cryptography-and-security-rag-100",
+  "parts": [
+    "crypto_pilot_20.jsonl",
+    "crypto_expansion_80.jsonl"
+  ],
+  "expected_examples": 100
+}

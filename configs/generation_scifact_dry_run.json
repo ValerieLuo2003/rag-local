@@ -1,0 +1,15 @@
+{
+  "docs": "data/scifact_docs",
+  "eval_file": "eval/scifact_eval.jsonl",
+  "retriever": "bm25",
+  "top_k": 5,
+  "chunk_size": 1200,
+  "chunk_overlap": 100,
+  "llm_provider": "mock",
+  "dry_run": true,
+  "max_examples": 0,
+  "min_examples": 100,
+  "group_by": "query_type",
+  "seed": 42,
+  "output": "outputs/generation_scifact_dry_run.jsonl"
+}

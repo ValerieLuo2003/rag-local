@@ -1,0 +1,18 @@
+{
+  "docs": "data/scifact_docs",
+  "eval_file": "eval/scifact_eval.jsonl",
+  "retrievers": "bm25,embedding,hybrid,rerank",
+  "chunk_sizes": "600,1200,1800",
+  "chunk_overlap": 100,
+  "top_ks": "3,5,10",
+  "max_examples": 300,
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_cache_dir": "model_cache",
+  "hybrid_candidate_k": 50,
+  "rrf_k": 60,
+  "rerank_base": "hybrid",
+  "rerank_candidate_k": 50,
+  "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "seed": 42,
+  "output": "outputs/ablation_results_strict.csv"
+}

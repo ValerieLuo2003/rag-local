@@ -1,0 +1,17 @@
+{
+  "docs": "data/corpus_manifest.jsonl",
+  "eval_file": "eval/crypto_pilot_20.jsonl",
+  "retriever": "bm25",
+  "top_k": 5,
+  "chunk_size": 1200,
+  "chunk_overlap": 120,
+  "llm_provider": "mock",
+  "llm_model": "mock-citation-smoke",
+  "min_top_score": 12.0,
+  "min_examples": 20,
+  "group_by": "query_type",
+  "show_evidence": true,
+  "seed": 42,
+  "output": "outputs/generation_crypto_pilot_mock.jsonl",
+  "summary_output": "outputs/generation_crypto_pilot_mock.summary.json"
+}

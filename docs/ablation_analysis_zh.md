@@ -30,12 +30,16 @@ Chunk overlap：100 个字符
 
 评估指标：
 
-- Recall@k：标准相关文档是否出现在 top-k 检索结果中。
+- Hit@k：top-k 检索结果中是否至少出现一个标准相关文档。
 - MRR@k：第一个标准相关文档排得是否靠前。
 
 ## 2. 完整结果
 
-| 检索器 | Chunk Size | Top-k | Recall | MRR |
+> 指标口径说明：旧实验曾把“Top-K 是否命中任意一个相关来源”记作 Recall，
+> 严格来说它是 Hit@K。下表已更正列名；真正的 Recall@K 需要计算找回的
+> 不同相关来源数占全部相关来源数的比例。
+
+| 检索器 | Chunk Size | Top-k | Hit@K | MRR@K |
 |---|---:|---:|---:|---:|
 | BM25 | 600 | 3 | 0.6533 | 0.5750 |
 | BM25 | 600 | 5 | 0.6967 | 0.5850 |
@@ -67,13 +71,13 @@ Chunk overlap：100 个字符
 
 ## 3. 主要结论
 
-### 结论 1：Top-k 越大，Recall 通常越高
+### 结论 1：Top-k 越大，Hit@K 通常越高
 
-在所有检索器和 chunk size 下，top-k 从 3 增加到 5、10 时，Recall 基本都会提升。
+在所有检索器和 chunk size 下，top-k 从 3 增加到 5、10 时，Hit@K 基本都会提升。
 
 以 `chunk_size=1800` 为例：
 
-| 检索器 | Recall@3 | Recall@5 | Recall@10 |
+| 检索器 | Hit@3 | Hit@5 | Hit@10 |
 |---|---:|---:|---:|
 | BM25 | 0.7100 | 0.7400 | 0.7967 |
 | Embedding | 0.6800 | 0.7633 | 0.8133 |
@@ -95,7 +99,7 @@ Hybrid 在大多数设置下都优于单独 BM25 或单独 Embedding。
 
 在 `chunk_size=1800, top_k=10` 时：
 
-| 检索器 | Recall@10 | MRR@10 |
+| 检索器 | Hit@10 | MRR@10 |
 |---|---:|---:|
 | BM25 | 0.7967 | 0.6378 |
 | Embedding | 0.8133 | 0.6088 |
@@ -109,13 +113,13 @@ Hybrid 在大多数设置下都优于单独 BM25 或单独 Embedding。
 
 面试表达：
 
-> BM25 和 embedding retrieval 的优势互补。SciFact 实验中，Hybrid 在 Recall@10 和 MRR@10 上整体优于单一路线，说明关键词信号和语义信号都对科学文献检索有价值。
+> BM25 和 embedding retrieval 的优势互补。历史 SciFact 实验中，Hybrid 在 Hit@10 和 MRR@10 上整体优于单一路线，说明关键词信号和语义信号都对科学文献检索有价值。
 
 ### 结论 3：这个数据集上较大的 chunk 更好
 
 BM25 的效果随 chunk size 增大而提升：
 
-| Chunk Size | Recall@10 | MRR@10 |
+| Chunk Size | Hit@10 | MRR@10 |
 |---:|---:|---:|
 | 600 | 0.7700 | 0.5953 |
 | 1200 | 0.7733 | 0.6127 |
@@ -123,7 +127,7 @@ BM25 的效果随 chunk size 增大而提升：
 
 Hybrid 在 `chunk_size=1800` 时 MRR 最好：
 
-| Chunk Size | Recall@10 | MRR@10 |
+| Chunk Size | Hit@10 | MRR@10 |
 |---:|---:|---:|
 | 600 | 0.8333 | 0.6336 |
 | 1200 | 0.8300 | 0.6414 |
@@ -142,9 +146,9 @@ Hybrid 在 `chunk_size=1800` 时 MRR 最好：
 
 ### 结论 4：Embedding 提升召回，但排序不一定最好
 
-Embedding 的 Recall@10 随 chunk size 增大而提升：
+Embedding 的 Hit@10 随 chunk size 增大而提升：
 
-| Chunk Size | Recall@10 | MRR@10 |
+| Chunk Size | Hit@10 | MRR@10 |
 |---:|---:|---:|
 | 600 | 0.7933 | 0.6130 |
 | 1200 | 0.8067 | 0.6009 |
@@ -154,7 +158,7 @@ Embedding 的 Recall@10 随 chunk size 增大而提升：
 
 - Embedding 检索更容易找到语义相关文档。
 - 但标准相关文档不一定排在最前面。
-- 所以 embedding 更像是提升 recall 的召回器，最终排序还需要 hybrid 或 rerank。
+- 所以 embedding 更适合扩大候选覆盖，最终排序还需要 hybrid 或 rerank。
 
 这也是加入 cross-encoder reranker 的动机。
 
@@ -166,7 +170,7 @@ Embedding 的 Recall@10 随 chunk size 增大而提升：
 retriever=hybrid
 chunk_size=1800
 top_k=10
-Recall@10=0.8333
+Hit@10=0.8333
 MRR@10=0.6688
 ```
 
@@ -179,18 +183,18 @@ chunk_size=1800
 top_k=10
 hybrid_candidate_k=50
 rerank_candidate_k=50
-Recall@10=0.8367
+Hit@10=0.8367
 MRR@10=0.6588
 ```
 
 对比结果如下：
 
-| 配置 | Recall@10 | MRR@10 |
+| 配置 | Hit@10 | MRR@10 |
 |---|---:|---:|
 | hybrid, chunk=1800 | 0.8333 | 0.6688 |
 | hybrid + rerank, chunk=1800 | 0.8367 | 0.6588 |
 
-该结果表明，当前 cross-encoder reranker 在 `chunk_size=1800` 下仅小幅提升了 Recall，但没有提升 MRR，排序质量反而略有下降。因此，rerank 并不必然带来稳定收益，需要结合数据集、候选集质量、reranker 模型和 chunk 粒度共同评估。
+该结果表明，当前 cross-encoder reranker 在 `chunk_size=1800` 下仅小幅提升了 Hit@K，但没有提升 MRR，排序质量反而略有下降。因此，rerank 并不必然带来稳定收益，需要结合数据集、候选集质量、reranker 模型和 chunk 粒度共同评估。
 
 可能原因包括：
 
@@ -228,7 +232,7 @@ MRR@10=0.6588
 - Embedding 检索：使用 sentence-transformers 将 query 和 chunk 编码成向量，通过向量相似度做语义召回。
 - Hybrid retrieval：使用 RRF 融合 BM25 和 embedding 的排序结果，提高召回稳定性。
 - Cross-encoder rerank：对召回候选做更精细的 query-document 相关性排序。
-- 检索评估：使用 Recall@k 和 MRR 评估相关文档是否被召回以及排序位置。
+- 检索评估：使用 Hit@k、真正的 Recall@k、MRR 和 nDCG 评估相关文档覆盖与排序位置。
 - LLM 生成：支持 OpenAI-compatible Chat Completions API，例如 DeepSeek。
 - 引用与拒答：要求模型输出引用；当检索证据不足时返回无法确定，避免无依据生成。
 
@@ -357,7 +361,7 @@ dry-run 不调用真实 LLM，只执行检索、rerank、prompt 构造和 token 
 ```text
 examples=12
 evidence_hit_rate=0.5000
-citation_valid_rate=1.0000
+citation_format_valid_rate=1.0000
 refusal_rate=0.0000
 ```
 
@@ -374,14 +378,14 @@ outputs/generation_eval_small_deepseek.jsonl
 ```text
 examples=12
 evidence_hit_rate=0.5000
-citation_valid_rate=0.9167
+citation_format_valid_rate=0.9167
 refusal_rate=0.4167
 ```
 
 指标解释：
 
 - `evidence_hit_rate=0.5000`：12 条问题中有 6 条检索到了标准相关文档。由于该小集合刻意包含失败样例和容易混淆样例，该指标主要用于观察端到端系统在不同检索质量下的表现。
-- `citation_valid_rate=0.9167`：12 条回答中有 11 条引用格式有效，说明引用约束和后处理基本有效。
+- `citation_format_valid_rate=0.9167`：12 条回答中有 11 条引用编号格式有效。该指标只检查编号存在且不越界，不代表引用内容支持回答；Citation Correctness 和 Faithfulness 需要人工或 judge 复核。
 - `refusal_rate=0.4167`：12 条回答中有 5 条触发拒答或被识别为拒答，说明模型在证据不足时具备一定谨慎性。
 
 典型现象如下：
@@ -442,7 +446,7 @@ python -m rag_starter.eval_generation --llm-provider openai-chat --api-key-env D
 
 - 实现了完整 RAG 检索与生成链路，而非单纯调用 LLM API。
 - 对比了 BM25、embedding、hybrid 和 rerank 多种检索策略。
-- 使用 Recall@k 和 MRR 做离线检索评估。
+- 使用 Hit@k、真正的 Recall@k、MRR 和 nDCG 做离线检索评估。
 - 通过 chunk size、top-k、retriever 对比完成消融实验。
 - 接入真实 LLM API，验证了端到端生成流程。
 - 引入引用输出和证据不足拒答，体现事实一致性与幻觉控制意识。
@@ -462,7 +466,7 @@ python -m rag_starter.eval_generation --llm-provider openai-chat --api-key-env D
 
 - 有明确应用场景：面向本地/私有文档的 RAG 问答。
 - 有完整技术链路：文档解析、chunk、BM25、embedding、hybrid retrieval、rerank、prompt、LLM 生成、引用和拒答。
-- 有离线指标：Recall@k 和 MRR。
+- 有离线指标：Hit@k、真正的 Recall@k、MRR 和 nDCG。
 - 有消融实验：对比 chunk size、top-k、retriever、rerank。
 - 有错误分析：解释 hybrid 与 rerank 的差异和失败原因。
 - 有端到端验证：接入 DeepSeek API 完成真实生成评估。
@@ -472,17 +476,17 @@ python -m rag_starter.eval_generation --llm-provider openai-chat --api-key-env D
 ```text
 基于 RAG 的本地知识库问答系统
 - 构建面向本地文档的 RAG 问答系统，支持文档解析、chunk 切分、BM25 检索、embedding 语义检索、hybrid retrieval、cross-encoder rerank 和基于引用的答案生成。
-- 基于 BEIR SciFact 构建离线检索评估流程，对比不同 chunk size、top-k、BM25、embedding、hybrid 和 rerank 对 Recall@k、MRR 的影响。
-- 实验发现 hybrid retrieval 整体最稳定，在 chunk_size=1800、top_k=10 时达到 Recall@10=0.8333、MRR@10=0.6688；补充 rerank 后 Recall@10=0.8367、MRR@10=0.6588，说明 rerank 未在当前配置下稳定提升排序质量。
+- 基于 BEIR SciFact 构建离线检索评估流程，对比不同 chunk size、top-k、BM25、embedding、hybrid 和 rerank 对历史 Hit@k、MRR 的影响。
+- 实验发现 hybrid retrieval 整体最稳定，在 chunk_size=1800、top_k=10 时达到 Hit@10=0.8333、MRR@10=0.6688；补充 rerank 后 Hit@10=0.8367、MRR@10=0.6588，说明 rerank 未在当前配置下稳定提升排序质量。
 - 设计错误分析流程，对 hybrid 与 rerank 的命中差异进行分桶，分析关键词不重合、表面词误导、否定/比较关系困难和领域模型不适配等失败原因。
-- 接入 DeepSeek API 完成小规模端到端生成评估，验证引用输出和证据不足拒答逻辑；12 条评估样例中 citation_valid_rate=0.9167、refusal_rate=0.4167。
+- 接入 DeepSeek API 完成小规模端到端生成评估，验证引用输出和证据不足拒答逻辑；12 条历史评估样例中 citation_format_valid_rate=0.9167、refusal_rate=0.4167（均非语义正确性指标）。
 ```
 
 若简历篇幅较短，可压缩为三条：
 
 ```text
 - 构建基于 RAG 的本地知识库问答系统，支持 BM25、embedding、hybrid retrieval、cross-encoder rerank、引用生成和证据不足拒答。
-- 在 BEIR SciFact 上完成检索消融实验，对比 chunk size、top-k 与检索策略对 Recall@k、MRR 的影响；hybrid 在 chunk_size=1800、top_k=10 下达到 Recall@10=0.8333、MRR@10=0.6688。
+- 在 BEIR SciFact 上完成检索消融实验，对比 chunk size、top-k 与检索策略对历史 Hit@k、MRR 的影响；hybrid 在 chunk_size=1800、top_k=10 下达到 Hit@10=0.8333、MRR@10=0.6688。
 - 接入 DeepSeek API 做端到端生成评估，并通过错误分析定位检索失败、rerank 排序不稳定和事实验证类问题中的幻觉风险。
 ```
 

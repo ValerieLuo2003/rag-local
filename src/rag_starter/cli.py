@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from .chunking import split_documents
+from .agent_retrieval import AgenticRetriever
 from .embedding_retrieval import EmbeddingRetriever
 from .faiss_retrieval import FaissRetriever
 from .generator import build_prompt, evidence_only_answer
@@ -19,7 +20,8 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=5, help="Number of chunks to retrieve.")
     parser.add_argument("--chunk-size", type=int, default=600, help="Chunk size measured in characters.")
     parser.add_argument("--chunk-overlap", type=int, default=120, help="Chunk overlap measured in characters.")
-    parser.add_argument("--retriever", choices=["bm25", "embedding", "faiss", "hybrid", "rerank"], default="bm25", help="Retrieval method.")
+    parser.add_argument("--retriever", choices=["bm25", "embedding", "faiss", "hybrid", "rerank", "agent"], default="bm25", help="Retrieval method.")
+    add_agent_args(parser)
     parser.add_argument(
         "--embedding-model",
         default="sentence-transformers/all-MiniLM-L6-v2",
@@ -54,6 +56,15 @@ def main() -> None:
 
 
 def build_retriever(args: argparse.Namespace, chunks):
+    if args.retriever == "agent":
+        base_retriever = build_base_retriever(args, chunks, args.agent_base)
+        return AgenticRetriever(
+            chunks,
+            base_retriever,
+            candidate_k=args.agent_candidate_k,
+            rrf_k=args.agent_rrf_k,
+            max_per_source=args.agent_max_per_source,
+        )
     if args.retriever == "rerank":
         base_retriever = build_base_retriever(args, chunks, args.rerank_base)
         return RerankRetriever(
@@ -97,6 +108,17 @@ def build_base_retriever(args: argparse.Namespace, chunks, retriever_name: str):
             rrf_k=args.rrf_k,
         )
     raise ValueError(f"Unknown retriever: {retriever_name}")
+
+
+def add_agent_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--agent-base",
+        choices=["bm25", "embedding", "faiss", "hybrid"],
+        default="bm25",
+    )
+    parser.add_argument("--agent-candidate-k", type=int, default=40)
+    parser.add_argument("--agent-rrf-k", type=int, default=60)
+    parser.add_argument("--agent-max-per-source", type=int, default=2)
 
 
 if __name__ == "__main__":

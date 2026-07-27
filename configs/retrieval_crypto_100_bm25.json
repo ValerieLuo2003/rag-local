@@ -1,0 +1,12 @@
+{
+  "docs": "data/corpus_manifest.jsonl",
+  "eval_file": "eval/crypto_eval_100.json",
+  "retriever": "bm25",
+  "top_k": 10,
+  "chunk_size": 1200,
+  "chunk_overlap": 120,
+  "group_by": "query_type,review_group",
+  "seed": 42,
+  "output": "outputs/retrieval_crypto_100_bm25.json",
+  "progress_every": 20
+}

@@ -1,0 +1,11 @@
+{
+  "docs": "data/scifact_docs",
+  "eval_file": "eval/scifact_eval.jsonl",
+  "retriever": "bm25",
+  "top_k": 10,
+  "chunk_size": 1200,
+  "chunk_overlap": 100,
+  "group_by": "type,review_group",
+  "seed": 42,
+  "output": "outputs/retrieval_scifact_bm25.json"
+}

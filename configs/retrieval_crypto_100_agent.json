@@ -1,0 +1,16 @@
+{
+  "docs": "data/corpus_manifest.jsonl",
+  "eval_file": "eval/crypto_eval_100.json",
+  "retriever": "agent",
+  "agent_base": "bm25",
+  "agent_candidate_k": 40,
+  "agent_rrf_k": 60,
+  "agent_max_per_source": 2,
+  "top_k": 10,
+  "chunk_size": 1200,
+  "chunk_overlap": 120,
+  "group_by": "query_type,review_group",
+  "seed": 42,
+  "output": "outputs/retrieval_crypto_100_agent.json",
+  "progress_every": 20
+}

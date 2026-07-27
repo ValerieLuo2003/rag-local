@@ -1,3 +1,48 @@
+Metadata-Version: 2.4
+Name: cryptosec-verifiable-rag
+Version: 0.3.0
+Summary: A source-grounded RAG evaluation framework evolving toward verifiable Agentic RAG for cryptography and security literature.
+Author: Valerie Luo
+License: MIT License
+        
+        Copyright (c) 2026 Valerie Luo
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
+Project-URL: Repository, https://github.com/ValerieLuo2003/rag-local
+Keywords: retrieval-augmented-generation,agentic-rag,cryptography,security,information-retrieval,llm-evaluation
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.26.0
+Requires-Dist: openai>=1.40.0
+Requires-Dist: pdfplumber>=0.11.0
+Requires-Dist: pypdf>=4.0.0
+Requires-Dist: scikit-learn>=1.4.0
+Requires-Dist: sentence-transformers>=3.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: ruff>=0.6.0; extra == "dev"
+Provides-Extra: ui
+Requires-Dist: streamlit>=1.36.0; extra == "ui"
+Dynamic: license-file
+
 # CryptoSec Verifiable Agentic RAG
 
 面向密码学与安全标准文献的可验证 RAG 项目。它不是只演示“能回答”的聊天页面，而是把语料来源、版本关系、章节/页码、检索指标、拒答、引用和实验记录连成一条可复现链路。
@@ -41,10 +86,7 @@ Agent 的改进来自：
 
 100 条 mock 生成链路的引用格式合法率为 1.0000；固定 BM25 分数阈值的拒答 F1 只有 0.6667。这说明引用管线已跑通，但单一阈值不能可靠判断“证据是否足够”，不能把 smoke test 当成答案正确性或生产级拒答能力。
 
-完整的项目原理、功能说明、命令输出解释和验收方法见
-[docs/project_overview_and_validation_zh.md](docs/project_overview_and_validation_zh.md)。
-实验与误差分析见 [docs/crypto_eval_report.md](docs/crypto_eval_report.md)，解析抽检见
-[docs/corpus_quality_report.md](docs/corpus_quality_report.md)。
+完整实验与误差分析见 [docs/crypto_eval_report.md](docs/crypto_eval_report.md)，解析抽检见 [docs/corpus_quality_report.md](docs/corpus_quality_report.md)。
 
 ## 快速开始
 

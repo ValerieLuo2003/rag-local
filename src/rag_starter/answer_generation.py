@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 
 from .schema import SearchResult
 
@@ -20,6 +21,10 @@ class AnswerResult:
     refused: bool = False
     citations_valid: bool = True
     citation_warning: str = ""
+    latency_ms: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class MockAnswerGenerator:
@@ -28,6 +33,7 @@ class MockAnswerGenerator:
         self.max_context_chars = max_context_chars
 
     def generate(self, question: str, evidence: list[SearchResult]) -> AnswerResult:
+        started_at = time.perf_counter()
         if not evidence:
             answer = f"{REFUSAL_TEXT}\n\nCitations: none"
             return AnswerResult(
@@ -36,6 +42,7 @@ class MockAnswerGenerator:
                 model=self.model,
                 evidence_count=0,
                 refused=True,
+                latency_ms=(time.perf_counter() - started_at) * 1000,
             )
 
         citations = " ".join(f"[{result.rank}]" for result in evidence[:3])
@@ -46,7 +53,13 @@ class MockAnswerGenerator:
             f"Top evidence preview: {preview}\n\n"
             f"Citations: {citations}"
         )
-        return AnswerResult(answer=answer, provider="mock", model=self.model, evidence_count=len(evidence))
+        return AnswerResult(
+            answer=answer,
+            provider="mock",
+            model=self.model,
+            evidence_count=len(evidence),
+            latency_ms=(time.perf_counter() - started_at) * 1000,
+        )
 
 
 class OpenAIResponsesAnswerGenerator:
@@ -69,17 +82,24 @@ class OpenAIResponsesAnswerGenerator:
 
     def generate(self, question: str, evidence: list[SearchResult]) -> AnswerResult:
         prompt = build_grounded_prompt(question, evidence, max_context_chars=self.max_context_chars)
+        started_at = time.perf_counter()
         response = self.client.responses.create(
             model=self.model,
             input=prompt,
             max_output_tokens=self.max_output_tokens,
         )
+        latency_ms = (time.perf_counter() - started_at) * 1000
         answer = getattr(response, "output_text", None) or str(response)
+        input_tokens, output_tokens, total_tokens = response_token_usage(response, chat=False)
         return AnswerResult(
             answer=answer.strip(),
             provider="openai-responses",
             model=self.model,
             evidence_count=len(evidence),
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
         )
 
     def _load_client(self):
@@ -110,13 +130,20 @@ class OpenAICompatibleChatAnswerGenerator(OpenAIResponsesAnswerGenerator):
         }
         if self.thinking in {"enabled", "disabled"}:
             kwargs["extra_body"] = {"thinking": {"type": self.thinking}}
+        started_at = time.perf_counter()
         response = self.client.chat.completions.create(**kwargs)
+        latency_ms = (time.perf_counter() - started_at) * 1000
         answer = response.choices[0].message.content or ""
+        input_tokens, output_tokens, total_tokens = response_token_usage(response, chat=True)
         return AnswerResult(
             answer=answer.strip(),
             provider="openai-compatible-chat",
             model=self.model,
             evidence_count=len(evidence),
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
         )
 
 
@@ -151,7 +178,8 @@ def format_evidence(evidence: list[SearchResult], max_context_chars: int = 8000)
     used_chars = 0
     for result in evidence:
         header = (
-            f"[{result.rank}] source={result.chunk.source}, "
+            f"[{result.rank}] {result.chunk.citation_label()}, "
+            f"doc_id={result.chunk.doc_id or result.chunk.source}, "
             f"chunk_id={result.chunk.chunk_id}, score={result.score:.4f}"
         )
         text = result.chunk.text.strip()
@@ -198,11 +226,9 @@ def postprocess_answer(
 ) -> AnswerResult:
     detected_refusal = is_refusal_answer(result.answer)
     if detected_refusal:
-        return AnswerResult(
+        return replace(
+            result,
             answer=normalize_refusal_citations(result.answer),
-            provider=result.provider,
-            model=result.model,
-            evidence_count=result.evidence_count,
             refused=True,
             citations_valid=True,
             citation_warning="",
@@ -221,12 +247,8 @@ def postprocess_answer(
         warning = f"Invalid citation ids: {invalid}. Valid range is 1..{evidence_count}."
         return append_citation_warning(result, warning)
 
-    return AnswerResult(
-        answer=result.answer,
-        provider=result.provider,
-        model=result.model,
-        evidence_count=result.evidence_count,
-        refused=result.refused,
+    return replace(
+        result,
         citations_valid=True,
         citation_warning="",
     )
@@ -234,19 +256,21 @@ def postprocess_answer(
 
 def append_citation_warning(result: AnswerResult, warning: str) -> AnswerResult:
     answer = result.answer.rstrip() + f"\n\nCitation check: {warning}"
-    return AnswerResult(
+    return replace(
+        result,
         answer=answer,
-        provider=result.provider,
-        model=result.model,
-        evidence_count=result.evidence_count,
-        refused=result.refused,
         citations_valid=False,
         citation_warning=warning,
     )
 
 
 def extract_citation_indices(text: str) -> list[int]:
-    return [int(value) for value in re.findall(r"\[(\d+)\]", text)]
+    citation_lines = re.findall(
+        r"(?im)^citations?\s*:\s*([^\r\n]*)",
+        text,
+    )
+    citation_text = citation_lines[-1] if citation_lines else text
+    return [int(value) for value in re.findall(r"\[(\d+)\]", citation_text)]
 
 
 def is_refusal_answer(text: str) -> bool:
@@ -270,6 +294,26 @@ def estimate_tokens(text: str) -> int:
     ascii_chars = sum(1 for char in text if ord(char) < 128)
     non_ascii_chars = len(text) - ascii_chars
     return max(1, round(ascii_chars / 4 + non_ascii_chars / 1.6))
+
+
+def response_token_usage(response, *, chat: bool) -> tuple[int | None, int | None, int | None]:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None, None, None
+    if chat:
+        input_tokens = optional_int(getattr(usage, "prompt_tokens", None))
+        output_tokens = optional_int(getattr(usage, "completion_tokens", None))
+    else:
+        input_tokens = optional_int(getattr(usage, "input_tokens", None))
+        output_tokens = optional_int(getattr(usage, "output_tokens", None))
+    total_tokens = optional_int(getattr(usage, "total_tokens", None))
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+    return input_tokens, output_tokens, total_tokens
+
+
+def optional_int(value) -> int | None:
+    return int(value) if value is not None else None
 
 
 def build_answer_generator(
